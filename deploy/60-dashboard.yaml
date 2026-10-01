@@ -1,0 +1,136 @@
+# Dashboard collector pod: serves dashboard/index.html and an ENRICHED state.json.
+# It reads the exporter's raw status (:3241), then adds, on an internal 5s timer:
+#   - the exporter's node name (from the VMI, via the API)
+#   - the client VM per device (from the usb-ip-assignments ConfigMap you declare),
+#     shown with the device's live connected/free status.
+#   - where each device sits on the node (port, hubs, controller) and what else
+#     is plugged in, from the discovery pods (65-usb-discovery.yaml), when present.
+#   - HAProxy's view of each client session (how long, how much, last traffic).
+#   - which VM holds each device passed through to a VM other than the exporter.
+#     VMs of other namespaces need the optional read in 62-dashboard-other-vms.yaml.
+# No CronJob; the timer is inside the pod. RBAC is read-only (VMIs + this CM).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: usb-ip-dashboard
+  namespace: default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt }
+  annotations:
+    # The login: this account is the OAuth client, and OpenShift sends the user
+    # back to the dashboard's Route after they sign in, with no consent screen.
+    serviceaccounts.openshift.io/oauth-redirectreference.primary: '{"kind":"OAuthRedirectReference","apiVersion":"v1","reference":{"kind":"Route","name":"usb-ip-dashboard"}}'
+    serviceaccounts.openshift.io/oauth-grant-method: auto
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: usb-ip-dashboard
+  namespace: default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt }
+rules:
+  - apiGroups: ["kubevirt.io"]
+    resources: ["virtualmachineinstances"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: usb-ip-dashboard
+  namespace: default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: usb-ip-dashboard }
+subjects:
+  - kind: ServiceAccount
+    name: usb-ip-dashboard
+    namespace: default
+---
+# Declare which client VM is meant to consume each device. Key = vendor_product
+# (the vendor:product with ':' written as '_', since ConfigMap keys cannot hold
+# a colon) OR the busid; value = "vm-name@cluster". Empty by default; fill it with
+# `oc edit configmap usb-ip-assignments`, e.g. "0a12_0001": "win-license-01@cluster-b".
+# Re-running apply.sh keeps what you added.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: usb-ip-assignments
+  namespace: default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt }
+data: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: usb-ip-dashboard
+  namespace: default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt, usb-ip-role: dashboard }
+spec:
+  replicas: 1
+  selector: { matchLabels: { usb-ip-role: dashboard } }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/part-of: usb-ip-kubevirt, usb-ip-role: dashboard }
+    spec:
+      serviceAccountName: usb-ip-dashboard
+      containers:
+        - name: collector
+          # the usb-ip-kubevirt image, pinned by digest (apply.sh fills it in)
+          image: USB_IP_IMAGE
+          command: ["python", "/app/collector.pyc"]
+          ports:
+            - { containerPort: 8080 }
+        # OpenShift's login in front of the page. Only someone who may read this
+        # Service in this namespace gets through, and the collector listens on
+        # 127.0.0.1, so this is the only way in from outside the pod. apply.sh
+        # puts in the oauth-proxy image of the cluster's own release.
+        - name: oauth-proxy
+          image: OAUTH_PROXY_IMAGE
+          args:
+            - --https-address=:8443
+            - --provider=openshift
+            - --openshift-service-account=usb-ip-dashboard
+            - '--openshift-sar={"namespace":"$(NAMESPACE)","resource":"services","resourceName":"usb-ip-dashboard","verb":"get"}'
+            - --upstream=http://127.0.0.1:8080
+            - --tls-cert=/etc/tls/private/tls.crt
+            - --tls-key=/etc/tls/private/tls.key
+            - --cookie-secret-file=/etc/oauth/cookie-secret
+            - --skip-auth-regex=^/healthz$
+            - --openshift-ca=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          env:
+            - name: NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+          ports:
+            - { name: https, containerPort: 8443 }
+          # /healthz goes through to the collector without a login, so this
+          # probe checks both containers
+          readinessProbe:
+            httpGet: { path: /healthz, port: https, scheme: HTTPS }
+            initialDelaySeconds: 3
+          volumeMounts:
+            - { name: tls, mountPath: /etc/tls/private, readOnly: true }
+            - { name: cookie, mountPath: /etc/oauth, readOnly: true }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+      volumes:
+        - name: tls
+          secret: { secretName: usb-ip-dashboard-tls }
+        - name: cookie
+          secret: { secretName: usb-ip-dashboard-cookie }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: usb-ip-dashboard
+  namespace: default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt }
+  annotations:
+    # OpenShift's service CA issues the certificate the oauth-proxy serves
+    service.beta.openshift.io/serving-cert-secret-name: usb-ip-dashboard-tls
+spec:
+  type: ClusterIP
+  selector: { usb-ip-role: dashboard }
+  ports:
+    - { name: https, port: 8443, targetPort: https, protocol: TCP }

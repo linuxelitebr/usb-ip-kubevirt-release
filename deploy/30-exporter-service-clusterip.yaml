@@ -1,0 +1,21 @@
+# ClusterIP Service for clients INSIDE the same cluster as the exporter. A client
+# in the exporter's namespace attaches to the DNS name "usb-ip-exporter" on port
+# 3240; one in another namespace spells it out,
+# "usb-ip-exporter.<namespace>.svc.cluster.local". usbip clients default to
+# 3240, so keep it 3240.
+apiVersion: v1
+kind: Service
+metadata:
+  name: usb-ip-exporter
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: usb-ip-kubevirt
+spec:
+  type: ClusterIP
+  selector:
+    usb-ip-role: exporter
+  ports:
+    - name: usbip
+      port: 3240
+      targetPort: 3240
+      protocol: TCP

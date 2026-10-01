@@ -1,0 +1,9 @@
+# The MetalLB instance: without it the operator runs but announces nothing.
+# Apply it once the operator's CSV is Succeeded. The address pool and the L2
+# advertisement come later, from apply.sh (deploy/40-exporter-metallb.yaml).
+apiVersion: metallb.io/v1beta1
+kind: MetalLB
+metadata:
+  name: metallb
+  namespace: metallb-system
+spec: {}

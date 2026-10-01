@@ -1,0 +1,59 @@
+# USB discovery: one small pod per node that reads the node's USB tree from
+# /sys/bus/usb and serves it as JSON on 3242. The dashboard collector finds the
+# pods through the headless Service and puts the hubs back between the exporter
+# and its devices (passthrough flattens them: inside the exporter every device
+# sits on a root port).
+#
+# No privileges and no hostPath: sysfs is not namespaced, so a plain pod already
+# sees the node's USB devices, read-only. A device passed through to a VM shows
+# up with its interfaces bound to "usbfs" (QEMU holds it), which is how the
+# collector tells exported devices from the ones the host still drives.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: usb-ip-discovery
+  namespace: default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt, usb-ip-role: discovery }
+spec:
+  selector: { matchLabels: { usb-ip-role: discovery } }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/part-of: usb-ip-kubevirt, usb-ip-role: discovery }
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: discovery
+          # the usb-ip-kubevirt image, pinned by digest (apply.sh fills it in)
+          image: USB_IP_IMAGE
+          command: ["python", "/app/discovery.pyc"]
+          env:
+            - name: NODE_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+            - { name: PYTHONDONTWRITEBYTECODE, value: "1" }
+          ports:
+            - { name: usb, containerPort: 3242 }
+          readinessProbe:
+            httpGet: { path: /usb.json, port: 3242 }
+            initialDelaySeconds: 2
+          resources:
+            requests: { cpu: 5m, memory: 24Mi }
+            limits: { memory: 64Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+            readOnlyRootFilesystem: true
+            seccompProfile: { type: RuntimeDefault }
+---
+# Headless: DNS answers with every discovery pod's IP, and each pod names its
+# own node in the JSON, so the collector needs no extra RBAC to find them.
+apiVersion: v1
+kind: Service
+metadata:
+  name: usb-ip-discovery
+  namespace: default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt }
+spec:
+  clusterIP: None
+  selector: { usb-ip-role: discovery }
+  ports:
+    - { name: usb, port: 3242, targetPort: 3242, protocol: TCP }

@@ -1,0 +1,34 @@
+# MetalLB operator. Only for CROSS_CLUSTER=yes, and only on the exporter's
+# cluster: it gives the exporter a LAN IP that clients elsewhere can reach.
+#
+# Skip this file if MetalLB is already installed (`oc get csv -n
+# metallb-system`): a second OperatorGroup in the namespace stops OLM cold.
+# Lab: OpenShift 4.21.32, operator 4.21.0 from this channel and catalog.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: metallb-system
+  # MetalLB's ServiceMonitors authenticate with the token of OpenShift's own
+  # Prometheus, which reads only namespaces with this label. Without it nobody
+  # collects MetalLB's metrics, and once user workload monitoring is on, it picks
+  # them up and rejects them (PrometheusOperatorRejectedResources).
+  labels:
+    openshift.io/cluster-monitoring: "true"
+---
+# No targetNamespaces: MetalLB installs for all namespaces.
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: metallb-operator
+  namespace: metallb-system
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: metallb-operator
+  namespace: metallb-system
+spec:
+  name: metallb-operator
+  channel: stable
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace

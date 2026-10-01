@@ -1,0 +1,51 @@
+# LoadBalancer for clients OUTSIDE the exporter's cluster (the "distributed"
+# case: a client VM on another cluster on the same LAN). Needs MetalLB.
+#
+# Why a LoadBalancer and not a NodePort: clients default to TCP 3240. A NodePort
+# (30000-32767) works too, but every client then passes the port (--tcp-port on
+# Linux, -Port on the Windows scripts) and points at one node's IP. MetalLB hands
+# out a stable LAN IP and serves the native port 3240.
+#
+# apply.sh puts LB_IP, a FREE IP on your LAN, in place of the 192.0.2.50 below
+# (a documentation placeholder, RFC 5737). Applying this file by hand: set it
+# yourself. "interfaces" must be the interface MetalLB advertises on; on
+# OpenShift bare metal that is usually br-ex.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: usb-ip-exporter-ip
+  namespace: metallb-system
+spec:
+  addresses:
+    - "192.0.2.50/32"   # LB_IP
+  autoAssign: false
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: usb-ip-exporter-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - usb-ip-exporter-ip
+  interfaces:
+    - br-ex             # your node's LAN interface
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: usb-ip-exporter-lb
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: usb-ip-kubevirt
+  annotations:
+    metallb.universe.tf/address-pool: usb-ip-exporter-ip
+spec:
+  type: LoadBalancer
+  selector:
+    usb-ip-role: exporter
+  ports:
+    - name: usbip
+      port: 3240
+      targetPort: 3240
+      protocol: TCP
