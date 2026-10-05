@@ -1,0 +1,33 @@
+# Example: everything MetalLB needs for this project on the exporter's cluster,
+# in one file. The instance, one address pool and one L2 advertisement. Set
+# X.X.X.X to a free IP on the node's LAN, and br-ex to the node's LAN interface
+# if yours differs. apply.sh creates the pool and the advertisement itself from
+# LB_IP (deploy/40-exporter-metallb.yaml); this file is for a cluster set up by
+# hand or through GitOps.
+apiVersion: metallb.io/v1beta1
+kind: MetalLB
+metadata:
+  name: metallb
+  namespace: metallb-system
+spec: {}
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: usb-ip-exporter-ip
+  namespace: metallb-system
+spec:
+  addresses:
+    - X.X.X.X/32
+  autoAssign: false
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: usb-ip-exporter-l2
+  namespace: metallb-system
+spec:
+  interfaces:
+    - br-ex
+  ipAddressPools:
+    - usb-ip-exporter-ip

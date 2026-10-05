@@ -1,0 +1,15 @@
+# Optional: an OpenShift Route so the dashboard has a URL, behind OpenShift's
+# login. The router re-encrypts to the oauth-proxy with the certificate the
+# service CA issued for the Service. Without it: oc port-forward
+# deploy/usb-ip-dashboard 8080, then http://localhost:8080 (your cluster login
+# already guards port-forward).
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: usb-ip-dashboard
+  namespace: default
+  labels: {app.kubernetes.io/part-of: usb-ip-kubevirt}
+spec:
+  to: {kind: Service, name: usb-ip-dashboard}
+  port: {targetPort: https}
+  tls: {termination: reencrypt, insecureEdgeTerminationPolicy: Redirect}

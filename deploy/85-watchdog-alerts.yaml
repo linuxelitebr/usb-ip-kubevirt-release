@@ -1,0 +1,90 @@
+# Alerts on the watchdog's metrics (80-watchdog.yaml), for the OpenShift console.
+# Needs user workload monitoring (docs/requirements.md); without it these two
+# objects sit here and nobody reads them. Each alert follows a state, not an
+# event: it fires for as long as the device is gone and clears by itself once
+# the device is back in the exporter. The command that fixes it is in the text.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: usb-ip-watchdog
+  namespace: default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt }
+spec:
+  selector:
+    matchLabels: { usb-ip-role: watchdog }
+  endpoints:
+    - { port: metrics, interval: 30s }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: usb-ip-watchdog
+  namespace: default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt }
+spec:
+  groups:
+    - name: usb-ip-kubevirt
+      rules:
+        - alert: USBDeviceMissing
+          expr: usb_ip_device_state{state="missing"} == 1
+          for: 1m
+          labels: { severity: warning }
+          annotations:
+            summary: USB device {{ $labels.vidpid }} is not on the exporter's node.
+            description: >-
+              {{ $labels.name }} ({{ $labels.vidpid }}, {{ $labels.resource }}) left the node, and its
+              client has no device. A running exporter keeps serving the others; restart it before
+              this is fixed and it does not start, which takes them all down. Plug it back in, then
+              run VIDPID={{ $labels.vidpid }} NAMESPACE={{ $labels.namespace }} scripts/rediscover.sh
+        - alert: USBDeviceLost
+          expr: usb_ip_device_state{state="lost"} == 1
+          for: 1m
+          labels: { severity: warning }
+          annotations:
+            summary: USB device {{ $labels.vidpid }} was replugged, and KubeVirt kept the old one.
+            description: >-
+              {{ $labels.name }} ({{ $labels.vidpid }}, {{ $labels.resource }}) came back with a new
+              device number that KubeVirt does not know, so the exporter cannot have it. Its client
+              has no device, and a restart of the exporter fails until this is fixed. Run
+              VIDPID={{ $labels.vidpid }} NAMESPACE={{ $labels.namespace }} scripts/rediscover.sh
+        - alert: USBDeviceBack
+          expr: usb_ip_device_state{state="back"} == 1
+          for: 1m
+          labels: { severity: warning }
+          annotations:
+            summary: USB device {{ $labels.vidpid }} is on the node but out of the exporter.
+            description: >-
+              {{ $labels.name }} ({{ $labels.vidpid }}, {{ $labels.resource }}) is plugged in, but
+              the exporter VM's hostDevices no longer list it: someone edited the VM. Its client has
+              no device until it is back. Run
+              VIDPID={{ $labels.vidpid }} NAMESPACE={{ $labels.namespace }} scripts/rediscover.sh
+        - alert: USBExporterDown
+          expr: usb_ip_exporter_running == 0
+          for: 5m
+          labels: { severity: critical }
+          annotations:
+            summary: The usbip exporter has not been running for 5 minutes.
+            description: >-
+              Every client of the exporter in {{ $labels.namespace }} lost its devices. When a
+              device that left the node is the cause, the watchdog's status names it and the
+              command that fixes it, long after its events expire:
+              NAMESPACE={{ $labels.namespace }} scripts/status.sh
+        - alert: USBWatchdogBlind
+          expr: usb_ip_watchdog_up == 0
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: The usbip watchdog cannot see the exporter or the node's USB tree.
+            description: >-
+              It reports nothing while it cannot see, so a device that leaves the node now raises
+              no alert. Its log says why:
+              oc logs deploy/usb-ip-watchdog -n {{ $labels.namespace }}
+        - alert: USBWatchdogDown
+          expr: absent(usb_ip_watchdog_up)
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: The usbip watchdog is not reporting.
+            description: >-
+              No metrics from the watchdog in {{ $labels.namespace }} for 5 minutes: its pod is down
+              or cannot be reached. A device that leaves the node now raises no alert.

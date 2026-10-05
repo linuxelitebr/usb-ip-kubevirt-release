@@ -1,0 +1,57 @@
+# Optional Fedora client VM. Two uses:
+#  1) A quick end-to-end check that does not need Windows: attach the remote
+#     device with `usbip attach` and confirm it enumerates in the guest.
+#  2) The reference client when you want to prove the exporter side is fine and
+#     isolate whether a Windows-only problem is the usbip-win2 client.
+#
+# It never gets the device via passthrough (no hostDevices). It reaches the
+# exporter over the network like any client. No password: log in as "fedora"
+# with the key you give apply.sh as SSH_PUBKEY.
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: usb-ip-linux-client
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: usb-ip-kubevirt
+    usb-ip-role: linux-client
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: usb-ip-kubevirt
+        usb-ip-role: linux-client
+    spec:
+      domain:
+        cpu:
+          cores: 2
+        devices:
+          disks:
+            - name: containerdisk
+              disk: { bus: virtio }
+            - name: cloudinit
+              disk: { bus: virtio }
+          interfaces:
+            - name: default
+              masquerade: {}
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - name: containerdisk
+          containerDisk:
+            # usb-ip-fedora 0.2.0: Fedora with usbip, HAProxy and the exporter inside.
+            # apply.sh puts DISK_IMAGE here.
+            image: quay.io/elastocera/usb-ip-fedora@sha256:8b4463e1b670e71b219cabdce022be467fbb77f6201905042c7dde0fcbd17aba
+        - name: cloudinit
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              ssh_pwauth: false
+              runcmd:
+                - command -v usbip >/dev/null 2>&1 || dnf install -y usbip "kernel-modules-extra-$(uname -r)" || dnf install -y usbip kernel-modules-extra
+                - modprobe vhci_hcd

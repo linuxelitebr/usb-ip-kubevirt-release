@@ -1,0 +1,28 @@
+# Optional: lets the dashboard name the VM that holds a USB device passed
+# through on the exporter's node when that VM lives in another namespace.
+# Read-only, but cluster-wide: the collector lists the VMIs on the exporter's
+# node in every namespace, and the KubeVirt CR for its USB allowlist. Whoever
+# may open the page sees those VM names, namespaces they cannot read included.
+# apply.sh sets this up with OTHER_VMS=yes (the default) and takes the binding
+# away with OTHER_VMS=no; the map then names only the VMs of its own namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: usb-ip-dashboard-other-vms
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt }
+rules:
+  - apiGroups: ["kubevirt.io"]
+    resources: ["virtualmachineinstances", "kubevirts"]
+    verbs: ["list"]
+---
+# One binding per install, so apply.sh puts the namespace into its name too.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: usb-ip-dashboard-other-vms-default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: usb-ip-dashboard-other-vms }
+subjects:
+  - kind: ServiceAccount
+    name: usb-ip-dashboard
+    namespace: default

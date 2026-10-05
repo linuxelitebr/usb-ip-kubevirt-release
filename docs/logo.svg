@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<!-- usb-ip-kubevirt: a USB dongle on a link whose two ends sit on the edge of the cluster -->
+<defs><linearGradient id="link" gradientUnits="userSpaceOnUse" x1="36.2" y1="0" x2="219.8" y2="0"><stop offset="0" stop-color="#34A7E6"/><stop offset="1" stop-color="#0B47A0"/></linearGradient></defs>
+<path d="M115.9 29.0 Q128.0 22.0 140.1 29.0 L207.7 68.0 Q219.8 75.0 219.8 89.0 L219.8 167.0 Q219.8 181.0 207.7 188.0 L140.1 227.0 Q128.0 234.0 115.9 227.0 L48.3 188.0 Q36.2 181.0 36.2 167.0 L36.2 89.0 Q36.2 75.0 48.3 68.0 Z" fill="none" stroke="#9FB0CF" stroke-width="6" stroke-linejoin="round"/>
+<path d="M36.2 132.0 H90.0 M166.0 132.0 H219.8" stroke="url(#link)" stroke-width="5" stroke-linecap="round"/>
+<g fill="none" stroke="#0B47A0" stroke-width="8" stroke-linejoin="round">
+<rect x="105" y="74" width="46" height="30"/><path d="M94 104 H162 V162 A20 20 0 0 1 142 182 H114 A20 20 0 0 1 94 162 Z"/></g>
+<circle cx="36.2" cy="132.0" r="12" fill="#34A7E6"/><circle cx="219.8" cy="132.0" r="12" fill="#0B47A0"/>
+</svg>

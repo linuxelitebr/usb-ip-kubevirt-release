@@ -1,0 +1,15 @@
+# The dashboard's login: its oauth-proxy checks every user with a
+# SubjectAccessReview (may they read the dashboard's Service in this
+# namespace?) and validates tokens with a TokenReview. Both need
+# system:auth-delegator. One binding per install, so apply.sh puts the
+# namespace into its name.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: usb-ip-dashboard-login-default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: system:auth-delegator }
+subjects:
+  - kind: ServiceAccount
+    name: usb-ip-dashboard
+    namespace: default
