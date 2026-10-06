@@ -1,0 +1,20 @@
+#cloud-config
+# usbip exporter. The disk, usb-ip-fedora, carries usbip, HAProxy and the
+# exporter's service, installed but off, since the Linux client boots the same
+# disk. This turns them on: the exporter binds every USB device passed through
+# to this VM (hostDevices), exports them with usbipd behind HAProxy on TCP 3240,
+# and publishes a live state.json on 3241 for the dashboard.
+#
+# No password, on purpose: port 22 answers on the pod network, and this VM holds
+# the devices. Log in as "fedora" with the key you give apply.sh as SSH_PUBKEY.
+ssh_pwauth: false
+runcmd:
+  # a disk without the exporter (the stock Fedora one, say) says so in the
+  # kernel log instead of failing quietly
+  # (quoted: a bare ": " in a command turns it into a YAML mapping, and cloud-init
+  # then refuses the whole runcmd)
+  - 'test -x /usr/local/bin/usbip-export.sh || echo "<3>usb-ip: this disk has no exporter, use usb-ip-fedora 0.2.0 or newer" > /dev/kmsg'
+  # SELinux keeps HAProxy on a fixed list of ports; this boolean lets it bind
+  # 3240 and reach usbipd on 3239
+  - setsebool -P haproxy_connect_any 1
+  - systemctl enable --now haproxy usbip-export.service

@@ -1,0 +1,106 @@
+# Watchdog: tells a person when a USB device leaves the exporter's node, and
+# what to run. It only reports.
+#
+# A hostDevice is mandatory: one device missing and the exporter does not start,
+# taking every other device down with it. And a device that is unplugged and
+# plugged back gets a new number KubeVirt never learns about (docs/server.md).
+# Every 10 seconds this compares the devices apply.sh asked for (an annotation
+# on the exporter VM) with the node's real USB tree (from the discovery pods)
+# and gives each one a state: ok, missing, lost (a replug, suspected) or back.
+# Anything but ok comes with its fix, scripts/rediscover.sh, in a Warning event
+# on the VM, in its status ConfigMap (the dashboard and status.sh show it) and
+# in its metrics (85-watchdog-alerts.yaml alerts on them).
+#
+# It never edits or restarts the exporter VM: that took a guess at which device
+# paths KubeVirt captured, and the guess kept breaking in new layouts. The cost: a
+# device leaves, the exporter restarts before anyone runs the fix, and it does
+# not start until rediscover.sh.
+#
+# RBAC is this namespace only: read the exporter VM and its VMI, list events and
+# create its own, write its own status. Nothing cluster-wide.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: usb-ip-watchdog
+  namespace: default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: usb-ip-watchdog
+  namespace: default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt }
+rules:
+  - apiGroups: ["kubevirt.io"]
+    resources: ["virtualmachines", "virtualmachineinstances"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list", "create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["usb-ip-watchdog-status"]
+    verbs: ["get", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: usb-ip-watchdog
+  namespace: default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: usb-ip-watchdog }
+subjects:
+  - kind: ServiceAccount
+    name: usb-ip-watchdog
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: usb-ip-watchdog
+  namespace: default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt, usb-ip-role: watchdog }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { usb-ip-role: watchdog } }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/part-of: usb-ip-kubevirt, usb-ip-role: watchdog }
+    spec:
+      serviceAccountName: usb-ip-watchdog
+      containers:
+        - name: watchdog
+          # the usb-ip-kubevirt image, pinned by digest (apply.sh fills it in)
+          image: USB_IP_IMAGE
+          command: ["python", "/app/watchdog.pyc"]
+          env:
+            - { name: PYTHONDONTWRITEBYTECODE, value: "1" }
+          ports:
+            - { name: metrics, containerPort: 9420 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 9420 }
+            initialDelaySeconds: 2
+          resources:
+            requests: { cpu: 5m, memory: 24Mi }
+            limits: { memory: 64Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+            readOnlyRootFilesystem: true
+            seccompProfile: { type: RuntimeDefault }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: usb-ip-watchdog
+  namespace: default
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt, usb-ip-role: watchdog }
+spec:
+  selector: { usb-ip-role: watchdog }
+  ports:
+    - { name: metrics, port: 9420, targetPort: 9420, protocol: TCP }

@@ -1,0 +1,15 @@
+# Volume for the OpenShift internal registry. Only needed to build the disk image
+# on the cluster (image/build-in-cluster.sh). No storageClassName: it lands on your default
+# StorageClass; add one if that is not where you want it. ReadWriteOnce is why
+# the registry has to run one replica with the Recreate rollout.
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: image-registry-storage
+  namespace: openshift-image-registry
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi

@@ -1,0 +1,52 @@
+# Runs fedora-usbip.sh on a cluster node. build-in-cluster.sh creates the
+# ConfigMap with the scripts and applies this. Needs a node with KVM (KubeVirt's
+# device plugin hands it out as devices.kubevirt.io/kvm) and egress to quay.io
+# and the Fedora mirrors. The disk comes out for that node's architecture. The
+# exporter's files come from the usb-ip-kubevirt image, which the init container
+# copies out. The build installs packages and runs libguestfs, so it runs as
+# root (anyuid, granted to its own service account).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fedora-usbip-build
+  namespace: usb-ip-kubevirt
+  labels: { app.kubernetes.io/part-of: usb-ip-kubevirt }
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: { app.kubernetes.io/part-of: usb-ip-kubevirt }
+    spec:
+      serviceAccountName: fedora-usbip-builder
+      restartPolicy: Never
+      initContainers:
+        - name: exporter-files
+          image: USB_IP_IMAGE
+          command: ["sh", "-c", "cp /usr/share/usb-ip/exporter/* /exporter/"]
+          volumeMounts:
+            - { name: exporter, mountPath: /exporter }
+      containers:
+        - name: build
+          image: quay.io/fedora/fedora:44
+          command: ["bash", "-c", "dnf install -y -q guestfs-tools skopeo qemu-img tar gzip && bash /build/fedora-usbip.sh"]
+          env:
+            - { name: FEDORA, value: "44" }
+            - { name: IMAGE, value: "image-registry.openshift-image-registry.svc:5000/usb-ip-kubevirt/fedora-usbip:44" }
+            - { name: EXPORTER_DIR, value: /exporter }
+            - { name: GUEST_SETUP, value: /build/guest-setup.sh }
+          securityContext: { runAsUser: 0 }
+          resources:
+            requests: { cpu: "2", memory: 3Gi }
+            limits: { devices.kubevirt.io/kvm: "1", memory: 6Gi }
+          volumeMounts:
+            - { name: script, mountPath: /build }
+            - { name: work, mountPath: /var/tmp }
+            - { name: exporter, mountPath: /exporter }
+      volumes:
+        - name: script
+          configMap: { name: fedora-usbip-build, defaultMode: 0755 }
+        - name: work
+          emptyDir: { sizeLimit: 30Gi }
+        - name: exporter
+          emptyDir: {}

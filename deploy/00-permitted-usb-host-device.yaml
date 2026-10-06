@@ -1,0 +1,23 @@
+# Reference only. This is the entry that must exist under
+# HyperConverged/kubevirt-hyperconverged (namespace openshift-cnv) so the node
+# advertises the USB device as an allocatable resource. You do NOT `oc apply`
+# this file (HyperConverged is an operator CR); apply.sh patches it in place, or
+# add this block yourself if you manage the CR through GitOps.
+#
+# One selector per resourceName. WATCH OUT: multiple selectors under a single
+# resourceName mean AND (all of those devices must be present at once), not OR.
+#
+# vendor/product are the 4-digit USB ids (lsusb), lowercase. Example below is a
+# CSR8510 Bluetooth dongle (0a12:0001). Change it to your device.
+apiVersion: hco.kubevirt.io/v1beta1
+kind: HyperConverged
+metadata:
+  name: kubevirt-hyperconverged
+  namespace: openshift-cnv
+spec:
+  permittedHostDevices:
+    usbHostDevices:
+      - resourceName: kubevirt.io/usb-dongle
+        selectors:
+          - vendor: "0a12"
+            product: "0001"

@@ -1,0 +1,14 @@
+# Status endpoint (option A): the exporter publishes a live state.json (device
+# list + per-device connected/free) on 3241. The dashboard reads it. Same-cluster
+# consumers use this DNS name; for the browser, port-forward it or add a Route.
+apiVersion: v1
+kind: Service
+metadata:
+  name: usb-ip-exporter-status
+  namespace: default
+  labels: {app.kubernetes.io/part-of: usb-ip-kubevirt}
+spec:
+  type: ClusterIP
+  selector: {usb-ip-role: exporter}
+  ports:
+    - {name: status, port: 3241, targetPort: 3241, protocol: TCP}

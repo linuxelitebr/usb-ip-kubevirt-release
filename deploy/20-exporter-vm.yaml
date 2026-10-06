@@ -1,0 +1,71 @@
+# The exporter VM: a small Fedora guest that receives the physical USB device
+# via KubeVirt host-device passthrough (hostDevices) and re-exports it with
+# usbip over TCP. This VM is PINNED to the node with the device (passthrough
+# does that for you) and is NOT meant to migrate. The migratable client is a
+# different VM that never sees the device locally.
+#
+# The device is passed by the resourceName you defined in the HyperConverged CR
+# (see 00-permitted-usb-host-device.yaml). apply.sh replaces hostDevices with
+# one entry per device in DEVICES (usb0, usb1, ...). cloud-init comes from a
+# Secret so it is not capped at the 2048-byte inline limit (apply.sh creates
+# that Secret from 10-exporter-cloudinit.yaml).
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: usb-ip-exporter
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: usb-ip-kubevirt
+    usb-ip-role: exporter
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: usb-ip-kubevirt
+        usb-ip-role: exporter
+    spec:
+      # It can never live-migrate: its devices are plugged into this node. With
+      # the cluster's default set to LiveMigrate, KubeVirt would refuse every
+      # eviction and a drain of this node would wait forever (KubeVirt's
+      # VMCannotBeEvicted runbook). None lets the drain stop it, and
+      # runStrategy Always starts it again once the node is back.
+      evictionStrategy: None
+      domain:
+        cpu:
+          cores: 1
+        devices:
+          disks:
+            - name: containerdisk
+              disk: { bus: virtio }
+            - name: cloudinit
+              disk: { bus: virtio }
+          interfaces:
+            # Only these ports reach the guest. usbipd itself listens on 3239
+            # on every address (it has no bind option); clients must go
+            # through HAProxy on 3240.
+            - name: default
+              masquerade: {}
+              ports:
+                - { name: usbip, port: 3240 }
+                - { name: status, port: 3241 }
+                - { name: ssh, port: 22 }
+          hostDevices:
+            - deviceName: kubevirt.io/usb-dongle
+              name: usb0
+        resources:
+          requests:
+            memory: 2Gi
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - name: containerdisk
+          containerDisk:
+            # usb-ip-fedora 0.2.0: Fedora with usbip, HAProxy and the exporter inside.
+            # apply.sh puts DISK_IMAGE here.
+            image: quay.io/elastocera/usb-ip-fedora@sha256:8b4463e1b670e71b219cabdce022be467fbb77f6201905042c7dde0fcbd17aba
+        - name: cloudinit
+          cloudInitNoCloud:
+            secretRef:
+              name: usb-ip-exporter-cloudinit
